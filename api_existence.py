@@ -3,10 +3,12 @@ import os
 import cPickle as pkl
 import numpy as np
 from multiprocessing import Pool
+import random
 
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.datasets import make_classification
 from sklearn.metrics import accuracy_score
+from sklearn.model_selection import KFold
 
 # Extracts features
 def extract(fn,a):
@@ -32,31 +34,6 @@ def extract_wrapper(args):
 
 # Iterates over each sample file to extract features
 def existence(sample_dir,api_file):
-    # Get number of API calls
-    a = 0
-    with open(api_file, 'rb') as fr:
-        lines = fr.readlines()
-        a = len(lines)
-
-    fileList = list()
-
-    # For each malware sample
-    for root, dirs, files in os.walk(sample_dir):  
-        #TODO - figure out how to make this 150k without running out of memory
-        for filename in files[:1000]:
-            # Ignore metadata
-            if filename == 'metadata.pkl':
-                continue
-
-            # Read in sequence data
-            sample_fn = os.path.join(root,filename)
-
-            # If file is empty
-            if os.stat(sample_fn).st_size == 0:
-                continue
-
-            fileList.append((sample_fn,a))
-
     X = np.array([])
     y = np.array([], dtype=np.int64)
 
@@ -84,7 +61,6 @@ def existence(sample_dir,api_file):
     sys.stdout.write('\n')
     sys.stdout.flush()
 
-
     return X,y
     
 def usage():
@@ -98,12 +74,79 @@ def _main():
     sample_dir = sys.argv[1]
     api_file = sys.argv[2]
 
-    # Extract features
-    x,y = existence(sample_dir,api_file) 
+    # Get number of API calls
+    a = 0
+    with open(api_file, 'rb') as fr:
+        lines = fr.readlines()
+        a = len(lines)
 
-    # Train random forest
-    clf = RandomForestClassifier(max_depth=32, random_state=0)
-    clf.fit(x, y)
+    #TODO - figure out how to increase n_estimators so it doesn't complain
+    # Create Random Forest
+    # https://stackoverflow.com/questions/42757892/how-to-use-warm-start#42763502
+    clf = RandomForestClassifier(warm_start=True,n_estimators=1000)
+
+    fileList = list()
+
+    # For each malware sample
+    for root, dirs, files in os.walk(sample_dir):  
+        for filename in files:
+            # Ignore metadata
+            if filename == 'metadata.pkl':
+                continue
+
+            # Read in sequence data
+            sample_fn = os.path.join(root,filename)
+
+            # If file is empty
+            if os.stat(sample_fn).st_size == 0:
+                continue
+
+            fileList.append((sample_fn,a))
+
+    #TODO - remove after testing
+    fileList = fileList[:1000]
+
+    print 'Number of samples: {0}'.format(len(fileList))
+
+    # Split dataset
+    random.shuffle(fileList)
+    t = int(len(fileList)*0.9)
+    train = fileList[:t]
+    test = fileList[t:]
+
+    # Iteratively train over portions of samples
+    print 'Running training'
+    m = 100 # Fit m samples at a time
+    for i in range(0,len(train),m):
+        X = np.array([])
+        y = np.array([], dtype=np.int64)
+
+        # Extract features in parallel
+        pool = Pool(20)
+        results = pool.imap_unordered(extract_wrapper, train[i:i+m+1])
+        for e,r in enumerate(results):
+            x,l = r
+
+            # Append x data
+            if len(X) == 0:
+                X = x
+            else:
+                X = np.vstack((X,x))
+
+            # Append y data
+            y = np.append(y,[l])
+
+            sys.stdout.write('\tExtracting sample: {0}/{1}\r'.format(e+1,len(train)))
+            sys.stdout.flush()
+
+        pool.close()
+        pool.join()
+
+        sys.stdout.write('\n')
+        sys.stdout.flush()
+
+        # Train random forest
+        clf.fit(X,y)
 
     # Print out "n most important features"
     # https://stackoverflow.com/questions/6910641/how-do-i-get-indices-of-n-maximum-values-in-a-numpy-array
@@ -115,11 +158,40 @@ def _main():
         print 'Call: {0}    Importance: {1}'.format(i,imp[i])
 
     # Run predictions
-    predicted = clf.predict(x)
+    print 'Running predictions'
+    X = np.array([])
+    y = np.array([], dtype=np.int64)
+
+    #NOTE: I pretend that we can fit this whole test dataset into memory
+    # Extract features in parallel
+    pool = Pool(20)
+    results = pool.imap_unordered(extract_wrapper, test)
+    for e,r in enumerate(results):
+        x,l = r
+
+        # Append x data
+        if len(X) == 0:
+            X = x
+        else:
+            X = np.vstack((X,x))
+
+        # Append y data
+        y = np.append(y,[l])
+
+        sys.stdout.write('\tExtracting sample: {0}/{1}\r'.format(e+1,len(test)))
+        sys.stdout.flush()
+
+    pool.close()
+    pool.join()
+
+    sys.stdout.write('\n')
+    sys.stdout.flush()
+
+    predicted = clf.predict(X)
     accuracy = accuracy_score(y, predicted)
 
     print ''
-    print 'Accuracy: {0:.3}'.format(accuracy)
+    print 'Validation Accuracy: {0:.3}'.format(accuracy)
 
 if __name__ == '__main__':
     _main()
