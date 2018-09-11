@@ -19,6 +19,10 @@ def extract(fn,a):
     x = np.array([0]*a)
     # Deduplicate sequence integers
     s = set(s)
+
+    # Remove 0's from feature vector (these are padding integers)
+    s -= {0}
+
     # Create feature vector for existence
     for i in s:
         x[i] = 1
