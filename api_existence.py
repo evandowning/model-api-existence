@@ -80,10 +80,9 @@ def _main():
         lines = fr.readlines()
         a = len(lines)
 
-    #TODO - figure out how to increase n_estimators so it doesn't complain
     # Create Random Forest
     # https://stackoverflow.com/questions/42757892/how-to-use-warm-start#42763502
-    clf = RandomForestClassifier(warm_start=True,n_estimators=1000)
+    clf = RandomForestClassifier(warm_start=True,n_estimators=10)
 
     fileList = list()
 
@@ -103,9 +102,6 @@ def _main():
 
             fileList.append((sample_fn,a))
 
-    #TODO - remove after testing
-    fileList = fileList[:1000]
-
     print 'Number of samples: {0}'.format(len(fileList))
 
     # Split dataset
@@ -113,6 +109,8 @@ def _main():
     t = int(len(fileList)*0.9)
     train = fileList[:t]
     test = fileList[t:]
+
+    e = 0
 
     # Iteratively train over portions of samples
     print 'Running training'
@@ -123,8 +121,8 @@ def _main():
 
         # Extract features in parallel
         pool = Pool(20)
-        results = pool.imap_unordered(extract_wrapper, train[i:i+m+1])
-        for e,r in enumerate(results):
+        results = pool.imap_unordered(extract_wrapper, train[i:i+m])
+        for r in results:
             x,l = r
 
             # Append x data
@@ -138,6 +136,8 @@ def _main():
 
             sys.stdout.write('\tExtracting sample: {0}/{1}\r'.format(e+1,len(train)))
             sys.stdout.flush()
+
+            e += 1
 
         pool.close()
         pool.join()
