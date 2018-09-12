@@ -9,6 +9,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.datasets import make_classification
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import KFold
+from sklearn.externals import joblib
+
 
 # Extracts features
 def extract(fn,a):
@@ -193,7 +195,7 @@ def _main():
 
     predicted = clf.predict(X)
     accuracy = accuracy_score(y, predicted)
-
+    joblib.dump(clf, 'model.pkl') 
     print ''
     print 'Validation Accuracy: {0:.3}'.format(accuracy)
 
