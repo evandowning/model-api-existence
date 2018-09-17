@@ -3,8 +3,47 @@ from sklearn.ensemble import RandomForestClassifier
 import sys
 import os
 import cPickle as pkl
+import numpy as np
 from sklearn import tree
 from subprocess import call
+
+
+def parse_tree(tree_):
+    # print tree_
+    # print tree_.children_left[0]
+    # print tree_.children_left
+    # print tree_.children_right[0]
+    # print tree_.children_right
+    # print '----'
+    # print tree_.feature
+    # print tree_.value
+
+    left = tree_.children_left
+    right = tree_.children_right
+
+    threshold = tree_.threshold
+    value = tree_.value
+    node = 0 ## root is located at index 0 in the array
+    features = tree_.feature
+
+    recursive_parse(left, right, threshold, features, value, node)
+
+    quit()
+
+
+def recursive_parse(left, right, threshold, features, node, value, depth=0):
+    indent = "\t" * depth
+    if(threshold[node] != -2):
+        print indent, "if ( " + str(features[node]) + " <= " + str(threshold[node]) + " || " + value[node]  + "  ) { " 
+        if left[node] != -1:
+            print 'left'
+            print indent, '} else { '
+            if right[node] != -1:
+                print 'right'
+            print indent, ' } '
+        
+
+
 
 
 def find_tree(clf):
@@ -21,13 +60,10 @@ def find_tree(clf):
 
         fn = 'tree_' + str(i_tree) + '.dot' 
         outfn = 'tree_' + str(i_tree) + '.png'
+        print 'Parsing tree: {0}...'.format(i_tree)
+        parse_tree(tree_in_clf.tree_)
 
         print 'Writing tree: {0}...'.format(i_tree)
-        print tree_in_clf.tree_
-        print tree_in_clf.tree_.children_left[0]
-        print tree_in_clf.tree_.children_left
-        print tree_in_clf.tree_.children_right[0]
-        print tree_in_clf.tree_.children_right
 
         # Write tree information to dot file
         with open(fn, 'w') as my_file:
@@ -55,6 +91,18 @@ def _main():
     print clf
 
     find_tree(clf)
+    for root, dirs, files in os.walk(sample_dir):  
+        for filename in files:
+            # Ignore metadata
+            if filename == 'metadata.pkl':
+                continue
+
+            # Read in sequence data
+            sample_fn = os.path.join(root,filename)
+
+            # If file is empty
+            if os.stat(sample_fn).st_size == 0:
+                continue
 
 if __name__ == '__main__':
     _main()
