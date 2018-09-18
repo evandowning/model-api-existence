@@ -62,8 +62,9 @@ def _main():
             s -= {0}
 
             # Create feature vector for existence
+            # -1 because 0 is used as a padding character for sequences
             for i in s:
-                x[i] = 1
+                x[i-1] = 1
 
             # For classes 'benign' and 'malicious'
             if l > 0:
