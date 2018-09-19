@@ -313,6 +313,9 @@ def _main():
             print 'Final: ', attack
             print [i for i in range(len(x)) if attack[i] != x[i]]
 
+            # Check the new label
+            print 'new predict: ', clf.predict([attack])[0]
+
             #TODO - just do one sample
             break
 
