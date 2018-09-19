@@ -1,5 +1,6 @@
 import sys
 import os
+import math
 import numpy as np
 import cPickle as pkl
 from subprocess import call
@@ -13,38 +14,100 @@ from sklearn.externals import joblib
 #       of the decision trees in that forest:
 # http://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html#sklearn.ensemble.RandomForestClassifier.predict
 
-#TODO
+#TODO - make sure this works for any amount of successes and failure paths (i.e., how do we change 'x' if we have to go "backwards"?)
 # Finds an attack on multiple trees simultaneously
-def find_attack(trees, comb, benign_paths):
-    rv = None
+# http://scikit-learn.org/stable/auto_examples/tree/plot_unveil_tree_structure.html#
+# https://stackoverflow.com/questions/48880557/print-the-decision-path-of-a-specific-sample-in-a-random-forest-classifier
+def find_attack(trees, comb, dt_index, benign_paths, x, xorig, api_list):
+    print '-------------------'
+    print 'Attacking tree: {0}'.format(dt_index)
 
-    #TODO
-    # Get decision path (for this sample) for each tree
-    # http://scikit-learn.org/stable/auto_examples/tree/plot_unveil_tree_structure.html#
-    # https://stackoverflow.com/questions/48880557/print-the-decision-path-of-a-specific-sample-in-a-random-forest-classifier
-    for index in comb:
-        estimator = trees[index]
+    # Get tree which belongs to this index
+    index = comb[dt_index]
+    estimator = trees[index]
 
-        node_indicator = estimator.decision_path([x])
+    # Get benign paths which belong to this tree
+    bpath = benign_paths[dt_index]
 
-        # Get leaves
-        leave_id = estimator.apply([x])
+    # Get decision path for this sample for this tree
+    node_indicator = estimator.decision_path([x])
 
-        # Get nodes in decision path for this tree
-        node_index = node_indicator.indices[node_indicator.indptr[0]:
-                                node_indicator.indptr[1]]
+    # Get leaves
+    leave_id = estimator.apply([x])
 
-        features = estimator.tree_.feature
-        value = estimator.tree_.value
-        for n in node_index:
-            # If a leaf node is reached, a decision is made
-            if leave_id[0] == n:
-                print 'leaf node: ', str(np.argmax(value[n]))
-                break
-            print '\t', str(api_list[features[n]])
-        print ''
+    # Get nodes in decision path for this tree
+    node_index = node_indicator.indices[node_indicator.indptr[0]:
+                            node_indicator.indptr[1]]
 
-    return rv
+    decision_path = list()
+
+    # Construct decision path via directions (to compare to benign paths)
+    features = estimator.tree_.feature
+    value = estimator.tree_.value
+    prev = None
+    for n in node_index:
+        # Figure out which direction this was traversed in
+        if prev != None:
+            # If left node
+            if n == estimator.tree_.children_left[prev]:
+                decision_path.append('left')
+            else:
+                decision_path.append('right')
+
+        prev = n
+
+        # If a leaf node is reached, a decision is made
+        if leave_id[0] == n:
+#           print 'class: ', str(np.argmax(value[n]))
+            break
+
+        # Append node
+        decision_path.append(str(api_list[features[n]]))
+
+    print decision_path
+
+    # For each benign path, see if there is a way to it from the decision path
+    for bp in bpath:
+#       print bp
+
+        answer = 'YES'
+        bprev = None
+        for d,b in itertools.izip_longest(decision_path,bp):
+            # If these disagree with each other, check direction
+            if d != b:
+                # If it's a left direction, check to see if this isn't a feature in our sample (if it is, we can't use this attack)
+                if b == 'left':
+                    # Determine API index of this call
+                    ni = int(bprev.split(' ')[0]) - 1
+                    if x[ni] == 1:
+                        answer = 'NO'
+                        break
+
+            bprev = b
+        print answer
+
+        # If we've found an attack, change 'x' and move onto the next tree
+        if answer == 'YES':
+            bprev = None
+            for b in bp:
+                # "Add" API call to 'x'
+                if b == 'right':
+                    # Determine API index of this call
+                    ni = int(bprev.split(' ')[0]) - 1
+                    if x[ni] != 1:
+                        print 'changing index: x[{0}]'.format(ni)
+                    x[ni] = 1
+
+                bprev = b
+
+            # If we have no more trees to search through, we're done :)
+            if dt_index+1 == len(comb):
+                return 'success',x
+
+            # Move onto next tree
+            return find_attack(trees, comb, dt_index+1, benign_paths, x, xorig, api_list)
+
+    return 'failure',None
 
 # Prints out decision tree logic in if-else statement form
 def recursive_print(left, right, threshold, features, node, value, depth=0):
@@ -236,16 +299,19 @@ def _main():
 
             # For each combination of trees
             attack = None
-            for comb in range(num_trees):
+            for comb in list(itertools.combinations(range(num_trees),half)):
+                print 'trying to attack combination: {0}'.format(str(comb))
 
                 # Find an attack
-                attack = find_attack(clf.estimators_, comb, benign_paths)
+                rv,attack = find_attack(clf.estimators_, comb, 0, benign_paths, np.copy(x), x, api_list)
+                print 'final: ', rv
 
-                # If attack is found, we're done
-                if attack != None:
+                # If attack is found, we're done with this sample
+                if attack is not None:
                     break
 
             print 'Final: ', attack
+            print [i for i in range(len(x)) if attack[i] != x[i]]
 
             #TODO - just do one sample
             break
