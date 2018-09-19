@@ -3,10 +3,48 @@ import os
 import numpy as np
 import cPickle as pkl
 from subprocess import call
+import itertools
 
 from sklearn import tree
 from sklearn.tree import _tree
 from sklearn.externals import joblib
+
+# NOTE: to defeat a random forest, we must defeat a majority
+#       of the decision trees in that forest:
+# http://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html#sklearn.ensemble.RandomForestClassifier.predict
+
+#TODO
+# Finds an attack on multiple trees simultaneously
+def find_attack(trees, comb, benign_paths):
+    rv = None
+
+    #TODO
+    # Get decision path (for this sample) for each tree
+    # http://scikit-learn.org/stable/auto_examples/tree/plot_unveil_tree_structure.html#
+    # https://stackoverflow.com/questions/48880557/print-the-decision-path-of-a-specific-sample-in-a-random-forest-classifier
+    for index in comb:
+        estimator = trees[index]
+
+        node_indicator = estimator.decision_path([x])
+
+        # Get leaves
+        leave_id = estimator.apply([x])
+
+        # Get nodes in decision path for this tree
+        node_index = node_indicator.indices[node_indicator.indptr[0]:
+                                node_indicator.indptr[1]]
+
+        features = estimator.tree_.feature
+        value = estimator.tree_.value
+        for n in node_index:
+            # If a leaf node is reached, a decision is made
+            if leave_id[0] == n:
+                print 'leaf node: ', str(np.argmax(value[n]))
+                break
+            print '\t', str(api_list[features[n]])
+        print ''
+
+    return rv
 
 # Prints out decision tree logic in if-else statement form
 def recursive_print(left, right, threshold, features, node, value, depth=0):
@@ -26,7 +64,7 @@ def recursive_print(left, right, threshold, features, node, value, depth=0):
 def print_tree(tree_in_clf, api_list, fn, outfn):
     # Print tree logic to stdout
     # https://www.kdnuggets.com/2017/05/simplifying-decision-tree-interpretation-decision-rules-python.html
-#   recursive_print(left, right, threshold, features, node, value)
+#   recursive_print(left, right, tree_in_clf.tree_.threshold, tree_in_clf.tree_.feature, node, tree_in_clf.tree_.value)
 
     print 'Writing tree to {0} and {1}'.format(fn, outfn)
 
@@ -65,17 +103,6 @@ def get_paths(t,start):
 
 # Creates ruleset of single tree
 def parse_tree(tree_,feature_names):
-    # print tree_
-    # print tree_.children_left[0]
-    # print tree_.children_left
-    # print tree_.children_right[0]
-    # print tree_.children_right
-    # print '----'
-    # print tree_.feature
-    # print tree_.value
-
-    rules = list()
-
     threshold = tree_.threshold
     features = tree_.feature
 
@@ -88,18 +115,8 @@ def parse_tree(tree_,feature_names):
     paths = list(get_paths(tree_,0))
 
     print 'number of paths: ', str(len(paths))
-#   for e,p in enumerate(paths):
-#       print 'path {0}'.format(e)
-#       for n in p:
-#           if n == 'left' or n == 'right':
-#               print '\t', n
-#               continue
 
-#           # the leaf node (i.e., class)
-#           if threshold[n] == -2:
-#               print '\tclass:' + str(np.argmax(value[n]))
-#           else:
-#               print '\t' + str(feature_names[features[n]])
+    rules = list()
 
     # Extract rulesets for benign paths
     for p in paths:
@@ -124,14 +141,12 @@ def parse_tree(tree_,feature_names):
 
 # Returns list of rulesets for benign paths
 def create_rules(clf, api_list):
-    trees = list()
     rules = list()
 
     # Iterate over each tree in random forest
     for e, tree_in_clf in enumerate(clf.estimators_):
         # Create ruleset for tree
         rv = parse_tree(tree_in_clf.tree_,api_list)
-        trees.append(tree_in_clf)
         rules.append(rv)
 
 #       # Print tree to file
@@ -139,7 +154,7 @@ def create_rules(clf, api_list):
 #       outfn = 'tree_' + str(e) + '.png'
 #       print_tree(tree_in_clf, api_list, fn, outfn)
 
-    return trees,rules
+    return rules
 
 def usage():
     print 'usage: python attack.py sequences/ api.txt model.pkl'
@@ -168,9 +183,8 @@ def _main():
     clf = joblib.load(modelfn)
 
     # Extract benign paths for each tree
-    trees, rules = create_rules(clf, api_list)
+    benign_paths = create_rules(clf, api_list)
 
-    #TODO
     # Evaluate each benign path on each malware sample
     for root, dirs, files in os.walk(sample_dir):  
         for filename in files:
@@ -189,6 +203,13 @@ def _main():
             with open(fn, 'rb') as fr:
                 s,l = pkl.load(fr)
 
+            # If sample is benign, ignore it
+            if l == 0:
+                continue
+            # Else, change label to be malicious (instead of malware class)
+            else:
+                l = 1
+
             x = np.array([0]*a)
             # Deduplicate sequence integers
             s = set(s)
@@ -200,52 +221,33 @@ def _main():
             for i in s:
                 x[i] = 1
 
-            # For classes 'benign' and 'malicious'
-            if l > 0:
-                l = 1
-
-            print fn
             # Evaluate features
             pred = clf.predict([x])[0]
-            print pred
+            print fn, pred
 
             if pred == 0:
                 print '\tAlready classified as benign'
                 continue
 
-            # Get decision path for this sample
-            # https://stackoverflow.com/questions/48869343/decision-path-for-a-random-forest-classifier
-#           print clf.decision_path([x])
-#           (node_indicator, _) = clf.decision_path([x])
-#           print node_indicator
+            # Calculate combination of trees which would
+            # cause random forest to misclassify
+            num_trees = len(clf.estimators_)
+            half = int(math.ceil(num_trees/2.0))
 
-#           node_index = node_indicator.indices[node_indicator.indptr[0]:
-#                                   node_indicator.indptr[1]]
-#           print node_index
-#           print len(node_index)
+            # For each combination of trees
+            attack = None
+            for comb in range(num_trees):
 
+                # Find an attack
+                attack = find_attack(clf.estimators_, comb, benign_paths)
 
-            # http://scikit-learn.org/stable/auto_examples/tree/plot_unveil_tree_structure.html#
-            # https://stackoverflow.com/questions/48880557/print-the-decision-path-of-a-specific-sample-in-a-random-forest-classifier
-            for estimator in trees:
-                node_indicator = estimator.decision_path([x])
-#               print node_indicator
+                # If attack is found, we're done
+                if attack != None:
+                    break
 
-                leave_id = estimator.apply([x])
+            print 'Final: ', attack
 
-                node_index = node_indicator.indices[node_indicator.indptr[0]:
-                                        node_indicator.indptr[1]]
-#               print node_index
-
-                features = estimator.tree_.feature
-                value = estimator.tree_.value
-                for n in node_index:
-                    # If a leaf node is reached, a decision is made
-                    if leave_id[0] == n:
-                        print 'leaf node: ', str(np.argmax(value[n]))
-                        break
-                    print '\t', str(api_list[features[n]])
-                print ''
+            #TODO - just do one sample
             break
 
 if __name__ == '__main__':
