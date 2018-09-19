@@ -66,9 +66,13 @@ def find_attack(trees, comb, dt_index, benign_paths, x, xorig, api_list):
 
     print decision_path
 
+    xcopy = None
     # For each benign path, see if there is a way to it from the decision path
     for bp in bpath:
 #       print bp
+
+        # Make a backup of the current 'x'
+        xcopy = np.copy(x)
 
         answer = 'YES'
         bprev = None
@@ -106,6 +110,9 @@ def find_attack(trees, comb, dt_index, benign_paths, x, xorig, api_list):
 
             # Move onto next tree
             return find_attack(trees, comb, dt_index+1, benign_paths, x, xorig, api_list)
+
+        # If we have to loop to try the next path, reset 'x'
+        x = np.copy(xcopy)
 
     return 'failure',None
 
