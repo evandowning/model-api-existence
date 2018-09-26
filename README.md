@@ -17,4 +17,7 @@ $ python api_existence.py data.csv model.pkl
 
 # Attack model
 $ python attack.py /data/arsa/api-sequences-all-classification-32-filtered/ api.txt model.pkl /data/arsa/api-existence-attacks/
+
+# Attack sequence and existence models
+$ python neo4j-mode.py /data/arsa/api-existence-attacks /home/evan/arsa/model-api-existence/model.pkl /data/arsa/api-sequences-all-classification-32-filtered/ api.txt /data/arsa/api-sequences-all-classification-32-filtered/metadata.pkl
 ```
