@@ -39,7 +39,7 @@ def _main():
     print '    Took {0} seconds'.format(str(time.time()-t))
 
     # Create Random Forest
-    clf = RandomForestClassifier(n_estimators=10)
+    clf = RandomForestClassifier(n_estimators=500)
 
     # Run training
     print 'Running training'

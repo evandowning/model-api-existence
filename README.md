@@ -1,11 +1,8 @@
 # model-api-existence
 Creates ML models of existence of API calls
 
-The API integers printed out by api_existence.py are the zero-indexed
+The API integers printed out by api_existence.py and attack.py are the zero-indexed
 line numbers in api.txt
-
-The API integers printed out by attack.py are the line numbers in api.txt
-(i.e., equivalent integers to sequence integers)
 
 ## Usage
 ```
@@ -15,8 +12,11 @@ $ time python parse.py /data/arsa/api-sequences-all-classification-32-filtered/ 
 # Model data & save model to file
 $ python api_existence.py data.csv model.pkl
 
-# Attack model
+# Brute-force attack model
 $ python attack.py /data/arsa/api-sequences-all-classification-32-filtered/ api.txt model.pkl /data/arsa/api-existence-attacks/
+
+# Optimized attack
+$ python attack2.py /data/arsa/api-sequences-all-classification-32-filtered/ api.txt model.pkl /data/arsa/api-existence-attacks/
 
 # Attack sequence and existence models
 $ python neo4j-mode.py /data/arsa/api-existence-attacks /home/evan/arsa/model-api-existence/model.pkl /data/arsa/api-sequences-all-classification-32-filtered/ api.txt /data/arsa/api-sequences-all-classification-32-filtered/metadata.pkl
