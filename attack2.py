@@ -15,107 +15,11 @@ from sklearn.externals import joblib
 #       of the decision trees in that forest:
 # http://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html#sklearn.ensemble.RandomForestClassifier.predict
 
-#TODO - make sure this works for any amount of successes and failure paths (i.e., how do we change 'x' if we have to go "backwards"?)
-# Finds an attack on multiple trees simultaneously
-# http://scikit-learn.org/stable/auto_examples/tree/plot_unveil_tree_structure.html#
-# https://stackoverflow.com/questions/48880557/print-the-decision-path-of-a-specific-sample-in-a-random-forest-classifier
-def find_attack(trees, comb, dt_index, benign_paths, x, xorig, api_list):
-#   print '-------------------'
-#   print 'Attacking tree: {0}'.format(dt_index)
-
-    # Get tree which belongs to this index
-    index = comb[dt_index]
-    estimator = trees[index]
-
-    # Get benign paths which belong to this tree
-    bpath = benign_paths[dt_index]
-
-    # Get decision path for this sample for this tree
-    node_indicator = estimator.decision_path([x])
-
-    # Get leaves
-    leave_id = estimator.apply([x])
-
-    # Get nodes in decision path for this tree
-    node_index = node_indicator.indices[node_indicator.indptr[0]:
-                            node_indicator.indptr[1]]
-
-    decision_path = list()
-
-    # Construct decision path via directions (to compare to benign paths)
-    features = estimator.tree_.feature
-    value = estimator.tree_.value
-    prev = None
-    for n in node_index:
-        # Figure out which direction this was traversed in
-        if prev != None:
-            # If left node
-            if n == estimator.tree_.children_left[prev]:
-                decision_path.append('left')
-            else:
-                decision_path.append('right')
-
-        prev = n
-
-        # If a leaf node is reached, a decision is made
-        if leave_id[0] == n:
-#           print 'class: ', str(np.argmax(value[n]))
-            break
-
-        # Append node
-        decision_path.append(str(api_list[features[n]]))
-
-#   print decision_path
-
-    xcopy = None
-    # For each benign path, see if there is a way to it from the decision path
-    for bp in bpath:
-#       print bp
-
-        # Make a backup of the current 'x'
-        xcopy = np.copy(x)
-
-        answer = 'YES'
-        bprev = None
-        for d,b in itertools.izip_longest(decision_path,bp):
-            # If these disagree with each other, check direction
-            if d != b:
-                # If it's a left direction, check to see if this isn't a feature in our sample (if it is, we can't use this attack)
-                if b == 'left':
-                    # Determine API index of this call
-                    ni = int(bprev.split(' ')[0]) - 1
-                    if x[ni] == 1:
-                        answer = 'NO'
-                        break
-
-            bprev = b
-#       print answer
-
-        # If we've found an attack, change 'x' and move onto the next tree
-        if answer == 'YES':
-            bprev = None
-            for b in bp:
-                # "Add" API call to 'x'
-                if b == 'right':
-                    # Determine API index of this call
-                    ni = int(bprev.split(' ')[0]) - 1
-#                   if x[ni] != 1:
-#                       print 'changing index: x[{0}]'.format(ni)
-                    x[ni] = 1
-
-                bprev = b
-
-            # If we have no more trees to search through, we're done :)
-            if dt_index+1 == len(comb):
-                return 'success',x
-
-            # Move onto next tree
-            return find_attack(trees, comb, dt_index+1, benign_paths, x, xorig, api_list)
-
-        # If we have to loop to try the next path, reset 'x'
-        x = np.copy(xcopy)
-
-    return 'failure',None
+#TODO
+# Finds attack across multiple trees
+def find_attack(trees, benign_paths):
+    for t in benign_paths:
+        print len(t)
 
 # Produces attack for each sample
 def attack_all(fn, fileMap, clf, benign_paths, num_trees, half, a, api_list, output_dir):
@@ -154,10 +58,18 @@ def attack_all(fn, fileMap, clf, benign_paths, num_trees, half, a, api_list, out
     # Remove 0's from feature vector (these are padding integers)
     s -= {0}
 
+    # Create list of API calls to check against
+    # If any path traverses to the left, it means the API call
+    # shouldn't exist, violating our constraint of not removing
+    # any API calls.
+    check = list()
+
     # Create feature vector for existence
     # -1 because 0 is used as a padding character for sequences
     for i in s:
+        # NOTE: "i" should be the same value as "api_list[i-1]"
         x[i-1] = 1
+        check.append([str(api_list[i-1]),'left'])
 
     # Evaluate features
     pred = clf.predict([x])[0]
@@ -166,44 +78,41 @@ def attack_all(fn, fileMap, clf, benign_paths, num_trees, half, a, api_list, out
         print '    Already classified as benign'
         return None
 
-    # Must put this in a generator because it can be large
-    combination = (itertools.combinations(range(num_trees),half))
+    print 'Removing irrelevant benign paths'
 
-    # For each combination of trees
-    attack = None
-    for e,comb in enumerate(combination):
-        print 'trying to attack combination: {0}'.format(e)
+#   print check
+    remove = dict()
 
-        # Find an attack
-        rv,attack = find_attack(clf.estimators_, comb, 0, benign_paths, np.copy(x), x, api_list)
-#       print 'final: ', rv
+    # Remove all benign paths which involve removing some API call which
+    # already exists in the malware.
+    for e1,t in enumerate(benign_paths):
+        count = 0
+        print 'number of paths: {0}'.format(len(t))
 
-        # If attack is found, we're done with this sample
-        if attack is not None:
-            break
+        r = list()
 
-    # If attack wasn't found
-    if attack is None:
-        return None
+        # For each benign path in tree
+        for e2,p in enumerate(t):
+            if any(p[i:i+2] in check for i in range(0,len(p),2)):
+                count += 1
+                r.append(e2)
 
-#   print '    Final: ', attack
-#   print '    Added API calls: ', [i for i in range(len(x)) if attack[i] != x[i]]
+        remove[e1] = r
+        print 'removing: {0} paths'.format(count)
+        print ''
 
-    # Check the new label
-#   print '    New predict: ', clf.predict([attack])[0]
+    # Remove paths
+    for k,v in remove.iteritems():
+        # Remove in reverse order so indices are correct
+        for i in v[::-1]:
+            del benign_paths[k][i]
 
-    # Create output filename
-    base = os.path.basename(fn)
-    outfn = os.path.join(output_dir,base[:-4])
+    print 'done'
+    print ''
 
-#   print '    Writing to {0}'.format(outfn)
-
-    # Record added API call indices (changed to match the numbers in syscall sequence)
-    with open(outfn, 'w') as fw:
-        fw.write(str([i+1 for i in range(len(x)) if attack[i] != x[i]]))
-
-    # Return statistics about how many api calls were added
-    return sum([i for i in x if i == 1]), sum([i for i in attack if i == 1])
+    #TODO
+    # Find overlap in benign paths across trees
+    attack = find_attack(clf.estimators_, benign_paths)
 
 def attack_all_wrapper(args):
     return attack_all(*args)
@@ -263,7 +172,7 @@ def get_paths(t,start):
             if right != -1:
                 queue.append((right, path + ['right',right]))
 
-# Creates ruleset of single tree
+# Extracts benign paths of single tree
 def parse_tree(tree_,feature_names):
     threshold = tree_.threshold
     features = tree_.feature
@@ -305,6 +214,7 @@ def parse_tree(tree_,feature_names):
 def create_rules(clf, api_list):
     rules = list()
 
+    #TODO - remove limit on number of trees searched
     # Iterate over each tree in random forest
     for e, tree_in_clf in enumerate(clf.estimators_):
         print 'Scanning tree {0}'.format(e)
@@ -317,6 +227,9 @@ def create_rules(clf, api_list):
 #       fn = 'tree_' + str(e) + '.dot' 
 #       outfn = 'tree_' + str(e) + '.png'
 #       print_tree(tree_in_clf, api_list, fn, outfn)
+
+        if e == 4:
+            break
 
     return rules
 
@@ -354,10 +267,8 @@ def _main():
     # Extract benign paths for each tree
     benign_paths = create_rules(clf, api_list)
 
-
-    # Calculate combination of trees which would
-    # cause random forest to misclassify
-    num_trees = len(clf.estimators_)
+#   num_trees = len(clf.estimators_)
+    num_trees = len(benign_paths)
     # If evenly divisible
     if num_trees % 2 == 0:
         half = num_trees/2 + 1
@@ -365,7 +276,8 @@ def _main():
         half = int(math.ceil(num_trees/2.0))
 
     print ''
-    print 'Must find attacks for {0}/{1} trees'.format(half,num_trees)
+    print 'Must find attacks for at least {0}/{1} trees'.format(half,num_trees)
+    print ''
 
     # Read in metadata
     metadata_fn = os.path.join(sample_dir,'metadata.pkl')
@@ -395,35 +307,12 @@ def _main():
 
             args.append((fn,fileMap,clf,benign_paths,num_trees,half,a,api_list,output_dir))
 
-            #TODO - testing
+            #TODO - testing just one sample
             break
-
-    statSum = 0
-    statTotal = 0
 
     #TODO -testing sequential
     for a in args:
         r = attack_all(*a)
-
-#   pool = Pool(20)
-#   results = pool.imap_unordered(attack_all_wrapper, args)
-#   for e,r in enumerate(results):
-#       sys.stdout.write('Finding attacks: {0}/{1}\r'.format(e+1,len(args)))
-#       sys.stdout.flush()
-
-#       if r is not None:
-#           before,after = r
-#           statSum += ((float(after) / before) - 1)
-#           statTotal += 1
-
-#   pool.close()
-#   pool.join()
-
-#   sys.stdout.write('\n')
-#   sys.stdout.flush()
-
-    # Print statistics
-    print 'Avg. added % of api calls: {0}'.format(statSum * 100.0 / float(statTotal))
 
 if __name__ == '__main__':
     _main()
