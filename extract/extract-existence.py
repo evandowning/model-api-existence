@@ -124,8 +124,6 @@ def _main():
         for e,r in enumerate(results):
             h,seq = r
 
-            fa.write('{0},'.format(h))
-
             # Replace API calls with their unique integer value
             # https://stackoverflow.com/questions/3403973/fast-replacement-of-values-in-a-numpy-array#3404089
             seq = np.array(seq)
@@ -143,8 +141,9 @@ def _main():
                 x[int(i)] = 1
 
             # Append data to CSV file
+            fa.write('{0},'.format(h))
             fa.write('{0}'.format(','.join(map(str,x))))
-            fa.write(',{0}\n'.format(l))
+            fa.write(',{0}\n'.format(sampleMap[h]))
 
             sys.stdout.write('Extracting data: {0}/{1}\r'.format(e+1,len(args)))
             sys.stdout.flush()
