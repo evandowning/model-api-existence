@@ -5,41 +5,24 @@ import numpy as np
 import png
 from struct import unpack
 from multiprocessing import Pool
-import time
-
-from hashlib import md5
-from zlib import adler32
-
-# Converts integers representing api calls to something in between [0,255]
-# Locality insensitive (good contrast)
-# 3 because 3 channels
-def api_md5(api):
-    return unpack('BBB', md5(api).digest()[:3])
-
-# Converts integers representing api calls to something in between [0,255]
-# Locality sensitive (things near each other will be similar colors)
-# 3 because 3 channels
-def api_adler32(api):
-    return unpack('BBB', pack('I', adler32(api))[-3:])
 
 # Extract API existence data and convert them to pixels
 def extract(data,width):
     fn = data[0]
     label = data[-1]
-    seq = np.array([])
 
     # Read in sample's sequence
-    for d in data[1:-1]:
-        # Replace API count integers with pixel values
-        seq = np.append(seq,[api_md5(d)])
+    seq = data[1:-1]
+    seq = map(int, seq)
 
-    # Pad array if it's not divisible by width (3 channels for RGB)
-    r = len(seq) % (width*3)
+    # Pad array if it's not divisible by width
+    r = len(seq) % width
     if r != 0:
-        seq = np.append(seq,[0]*(width*3-r))
+        seq.extend([0]*(width-r))
 
-    # Reshape numpy array (3 channels)
-    rv = np.reshape(np.array(seq), (-1,width*3))
+    # Reshape numpy array
+    rv = np.reshape(np.array(seq), (-1,width))
+    rv = rv.astype(np.int8)
 
     return fn,rv,label
 
@@ -63,8 +46,8 @@ def _main():
     # Width of image
     width = 496
 
-    # RBG color scheme (3 channels), 8-bits per channel
-    fmt_str = 'RGB;8'
+    # Grayscale (1 channel)
+    fmt_str = 'L;1'
 
     # If output folder doesn't exist, create it
     if not os.path.exists(output_folder):
@@ -82,6 +65,7 @@ def _main():
             # Only do first 10k samples
             if e == 10000:
                 break
+
 
     #TODO - make these parameters
     # Create argument pools
