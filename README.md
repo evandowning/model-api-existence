@@ -21,3 +21,8 @@ $ python attack2.py /data/arsa/api-sequences-all-classification-32-filtered/ api
 # Attack sequence and existence models
 $ python neo4j-mode.py /data/arsa/api-existence-attacks /home/evan/arsa/model-api-existence/model.pkl /data/arsa/api-sequences-all-classification-32-filtered/ api.txt /data/arsa/api-sequences-all-classification-32-filtered/metadata.pkl
 ```
+
+## Create images of sequences
+```
+$ python color.py
+```
