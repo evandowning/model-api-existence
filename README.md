@@ -5,7 +5,7 @@ The API integers printed out by api_existence.py and attack.py are the zero-inde
 line numbers in api.txt
 
 ## Requirements
-  * Debian 9 64-bit
+  * Debian 10 64-bit
 
 ## Clone repo
 ```
